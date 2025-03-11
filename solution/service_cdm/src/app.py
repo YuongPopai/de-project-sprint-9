@@ -1,31 +1,46 @@
-import logging
+from datetime import datetime
+from typing import Dict, Any, List
+import json
+from logging import Logger
+from lib.kafka_connect import KafkaConsumer
+from cdm_loader.repository.cdm_repository import CdmRepository
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask
+class CdmMessageProcessor:
+    def __init__(self,
+                 kafka_consumer: KafkaConsumer,
+                 cdm_repository: CdmRepository,
+                 logger: Logger) -> None:
+        self._consumer = kafka_consumer
+        self._repository = cdm_repository
+        self._logger = logger
+        self._batch_size = 30
 
-from app_config import AppConfig
-from cdm_loader.cdm_message_processor_job import CdmMessageProcessor
+    def run(self) -> None:
+        self._logger.info(f"{datetime.utcnow()}: START")
 
+        for _ in range(self._batch_size):
+            msg = self._consumer.consume()
+            if not msg:
+                break
 
-app = Flask(__name__)
+            payload = msg.get('payload', {})
+            user_id = payload.get('user_id')
+            products = payload.get('products', [])
 
-config = AppConfig()
+            if not user_id or not products:
+                self._logger.warning("Invalid message format: missing user_id or products.")
+                continue
 
+            for product in products:
+                product_id = product.get('product_id')
+                product_name = product.get('name')
+                category = product.get('category')
 
-@app.get('/health')
-def hello_world():
-    return 'healthy'
+                if product_id and product_name:
+                    self._repository.update_user_product_counter(user_id, product_id, product_name)
 
+                if category:
+                    category_id = category  
+                    self._repository.update_user_category_counter(user_id, category_id, category)
 
-if __name__ == '__main__':
-    app.logger.setLevel(logging.DEBUG)
-
-    proc = CdmMessageProcessor(
-        app.logger
-    )
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(func=proc.run, trigger="interval", seconds=25)
-    scheduler.start()
-
-    app.run(debug=True, host='0.0.0.0', use_reloader=False)
+        self._logger.info(f"{datetime.utcnow()}: FINISH")
