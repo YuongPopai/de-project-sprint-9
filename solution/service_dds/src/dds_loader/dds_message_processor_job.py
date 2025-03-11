@@ -19,7 +19,7 @@ class DdsMessageProcessor:
         self._logger = logger
 
     def run(self) -> None:
-        self._logger.info(f"{datetime.utcnow()}: START")
+        self._logger.info("START")
 
         for _ in range(self._batch_size):
             msg = self._consumer.consume()
@@ -61,4 +61,4 @@ class DdsMessageProcessor:
             }
             self._producer.produce(cdm_payload)
 
-        self._logger.info(f"{datetime.utcnow()}: FINISH")
+        self._logger.info("FINISH")

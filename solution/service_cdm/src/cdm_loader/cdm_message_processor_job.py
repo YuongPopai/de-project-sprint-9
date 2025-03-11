@@ -16,7 +16,7 @@ class CdmMessageProcessor:
         self._batch_size = 30
 
     def run(self) -> None:
-        self._logger.info(f"{datetime.utcnow()}: START")
+        self._logger.info("START")
 
         for _ in range(self._batch_size):
             msg = self._consumer.consume()
@@ -28,7 +28,6 @@ class CdmMessageProcessor:
             products = payload.get('products', [])
 
             if not user_id or not products:
-                self._logger.warning("Invalid message format: missing user_id or products.")
                 continue
 
             for product in products:
@@ -43,4 +42,4 @@ class CdmMessageProcessor:
                     category_id = category 
                     self._repository.update_user_category_counter(user_id, category_id, category)
 
-        self._logger.info(f"{datetime.utcnow()}: FINISH")
+        self._logger.info("FINISH")

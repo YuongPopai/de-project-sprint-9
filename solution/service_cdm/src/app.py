@@ -1,46 +1,45 @@
-from datetime import datetime
-from typing import Dict, Any, List
-import json
-from logging import Logger
-from lib.kafka_connect import KafkaConsumer
+import logging
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask
+
+from app_config import AppConfig
+from cdm_loader.cdm_message_processor_job import CdmMessageProcessor
 from cdm_loader.repository.cdm_repository import CdmRepository
+from lib.kafka_connect import KafkaConsumer
+from lib.pg import PgConnect
 
-class CdmMessageProcessor:
-    def __init__(self,
-                 kafka_consumer: KafkaConsumer,
-                 cdm_repository: CdmRepository,
-                 logger: Logger) -> None:
-        self._consumer = kafka_consumer
-        self._repository = cdm_repository
-        self._logger = logger
-        self._batch_size = 30
+app = Flask(__name__)
 
-    def run(self) -> None:
-        self._logger.info(f"{datetime.utcnow()}: START")
+@app.get('/health')
+def health():
+    return 'healthy'
 
-        for _ in range(self._batch_size):
-            msg = self._consumer.consume()
-            if not msg:
-                break
+if __name__ == '__main__':
+    app.logger.setLevel(logging.DEBUG)
 
-            payload = msg.get('payload', {})
-            user_id = payload.get('user_id')
-            products = payload.get('products', [])
-
-            if not user_id or not products:
-                self._logger.warning("Invalid message format: missing user_id or products.")
-                continue
-
-            for product in products:
-                product_id = product.get('product_id')
-                product_name = product.get('name')
-                category = product.get('category')
-
-                if product_id and product_name:
-                    self._repository.update_user_product_counter(user_id, product_id, product_name)
-
-                if category:
-                    category_id = category  
-                    self._repository.update_user_category_counter(user_id, category_id, category)
-
-        self._logger.info(f"{datetime.utcnow()}: FINISH")
+    config = AppConfig()
+    
+    kafka_consumer = KafkaConsumer(
+        config.KAFKA_HOST,
+        config.KAFKA_PORT,
+        config.KAFKA_CONSUMER_GROUP,
+        config.KAFKA_SOURCE_TOPIC
+    )
+    pg_warehouse_db = PgConnect(
+        config.PG_WAREHOUSE_HOST,
+        config.PG_WAREHOUSE_PORT,
+        config.PG_WAREHOUSE_DBNAME,
+        config.PG_WAREHOUSE_USER,
+        config.PG_WAREHOUSE_PASSWORD
+    )
+    cdm_repository = CdmRepository(pg_warehouse_db)
+    proc = CdmMessageProcessor(
+        kafka_consumer,
+        cdm_repository,
+        app.logger
+    )
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(func=proc.run, trigger="interval", seconds=config.DEFAULT_JOB_INTERVAL)
+    scheduler.start()
+    app.run(debug=True, host='0.0.0.0', use_reloader=False)
